@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# Virtual environment
+venv/
+env/
+
+# Models
+models/
+
+# MongoDB
+*.log
+
+# VS Code
+.vscode/
+
+# Environment variables
+.env
