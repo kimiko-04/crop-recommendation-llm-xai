@@ -1,0 +1,41 @@
+# Model files (too large for GitHub — host separately)
+saved_models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Logs
+*.log
+backend.log
+frontend.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Local settings
+test/settings.local.json
+=0.44.0
+
+# Claude Code tooling
+.claude/
