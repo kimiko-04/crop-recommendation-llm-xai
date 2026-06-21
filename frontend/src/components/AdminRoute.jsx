@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 
 export default function AdminRoute({ children }) {
   const { token, user } = useAuth();
-  if (!token || user?.role !== "admin") return <Navigate to="/" replace />;
+  // Redirect to admin login (not home) so the admin can re-authenticate directly.
+  if (!token || user?.role !== "admin") return <Navigate to="/admin/login" replace />;
   return children;
 }

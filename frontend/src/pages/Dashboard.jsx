@@ -545,7 +545,7 @@ export default function Dashboard() {
                     {reasoning && (
                       <div className="mt-4 pt-4 border-t border-white/20">
                         <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">
-                          BERT reasoning
+                          BERT/DISTILBERT reasoning
                         </span>
                         <p className="text-sm text-emerald-100 leading-relaxed mt-2">{reasoning.reasoning}</p>
                       </div>

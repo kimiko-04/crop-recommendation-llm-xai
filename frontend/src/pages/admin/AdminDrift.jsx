@@ -116,7 +116,16 @@ export default function AdminDrift() {
   const confCrit = data?.thresholds?.conf_crit ?? 60;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen relative overflow-hidden">
+      <div
+        className="fixed inset-0 bg-cover bg-center -z-10"
+        style={{
+          backgroundImage: "url('https://images.unsplash.com/photo-1597932570098-5a11a0bbdd81?w=1600&q=80')",
+          filter: "blur(4px) brightness(0.4)",
+          transform: "scale(1.05)",
+        }}
+      />
+      <div className="fixed inset-0 bg-slate-900/55 -z-10" />
       <Navbar />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">

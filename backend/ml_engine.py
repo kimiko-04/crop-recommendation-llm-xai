@@ -1,8 +1,18 @@
 """
 ML inference engine for the FastAPI backend.
-Loads BERT/DistilBERT models from saved_models/ once at import time.
+
+Core idea: tabular soil/weather data is converted to a natural-language
+sentence ("Field Profile: ..."), then fed into a fine-tuned BERT or DistilBERT
+sequence classifier instead of a traditional ML model (Random Forest, XGBoost, etc.).
+This approach lets us layer two XAI methods on top of the NLP model:
+  1. SHAP KernelExplainer  — model-agnostic numeric feature attribution
+  2. BERT CLS attention    — attention-weight-based natural-language reasoning
+
+All models are loaded into memory once at import time so that every HTTP
+request hits an already-warm model with no cold-start cost.
 """
 import json
+import re
 import sys
 import shutil
 import threading
@@ -17,18 +27,72 @@ ROOT       = Path(__file__).resolve().parent.parent
 MODELS_DIR = ROOT / "saved_models"
 CSV_PATH   = ROOT / "Crop_recommendation.csv"
 
-DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
-MAX_LENGTH = 128
 
-_ready   = False
-_error   = None
-loaded   = {}
-id2label = {}
-label2id = {}
-labels   = []
-stats_raw = {}
-best_key  = None
-_temperatures = {}
+def get_active_csv_path() -> Path:
+    """Return the currently active training dataset path.
+
+    Falls back to the default Crop_recommendation.csv if no custom dataset
+    has been uploaded or the uploaded file no longer exists.
+    """
+    cfg = MODELS_DIR / "active_dataset.json"
+    if cfg.exists():
+        try:
+            info = json.loads(cfg.read_text())
+            path = Path(info["path"])
+            if path.exists():
+                return path
+        except Exception:
+            pass
+    return CSV_PATH
+
+DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
+MAX_LENGTH = 128  # tokens; the NLP template is ~60-70 tokens so 128 is sufficient
+
+# ── Model versioning helpers ──────────────────────────────────────────────────
+# Versioning scheme: base names are "bert" / "distilbert";
+# promoted retrained models become "bert_v2", "bert_v3", etc.
+# The regex matches both the base names and the versioned suffixes.
+
+_VERSION_RE = re.compile(r'^(bert|distilbert)(_v(\d+))?$')
+
+
+def _scan_model_dirs() -> list:
+    """Return all valid model directory names, sorted by base then version number."""
+    found = []
+    if not MODELS_DIR.exists():
+        return found
+    for d in MODELS_DIR.iterdir():
+        if d.is_dir() and _VERSION_RE.match(d.name) and (d / "config.json").exists():
+            found.append(d.name)
+    def _sort(name):
+        m = _VERSION_RE.match(name)
+        return (m.group(1), int(m.group(3)) if m.group(3) else 1)
+    return sorted(found, key=_sort)
+
+
+def _next_version_key(base: str) -> str:
+    """Return the next available versioned key, e.g. "bert_v3" if bert_v2 already exists."""
+    max_v = 1
+    for k in loaded:
+        m = re.match(rf'^{base}_v(\d+)$', k)
+        if m:
+            max_v = max(max_v, int(m.group(1)))
+    return f"{base}_v{max_v + 1}"
+
+
+# ── Module-level state ────────────────────────────────────────────────────────
+# Using module globals instead of a class so that all routes share the same
+# in-process objects without any import-time circular dependency.
+
+_ready        = False   # True only after all models load without error
+_error        = None    # Holds the exception message if loading failed
+loaded        = {}      # key → (tokenizer, model) pairs, ALL versions kept in RAM
+id2label      = {}      # int id → crop name (from label_map.json)
+label2id      = {}      # crop name → int id
+labels        = []      # ordered list of all 22 crop class names
+stats_raw     = {}      # training-set feature means (used as SHAP background)
+best_key      = None    # the currently active model key (can be overridden by admin)
+_temperatures = {}      # key → calibration temperature scalar (default 1.0 = no scaling)
 
 try:
     for required in ["stats.json", "label_map.json"]:
@@ -41,31 +105,38 @@ try:
     label2id  = label_map["label2id"]
     id2label  = {int(k): v for k, v in label_map["id2label"].items()}
 
-    DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
-    MAX_LENGTH = 128
-    MODEL_KEYS = ["distilbert", "bert"]
-
     model_accuracies = {}
-    for key in MODEL_KEYS:
+    for key in _scan_model_dirs():
         save_dir = MODELS_DIR / key
         if not (save_dir / "config.json").exists():
             continue
         print(f"[ml_engine] Loading {key} ...")
         tok  = AutoTokenizer.from_pretrained(save_dir)
-        mdl  = AutoModelForSequenceClassification.from_pretrained(save_dir).to(DEVICE).eval()
+        # attn_implementation="eager" is required for generate_reasoning(), which passes
+        # output_attentions=True.  The default "sdpa" (scaled dot product) backend in
+        # Transformers >=4.36 drops attention weights when output_attentions=True, causing
+        # a silent fallback and a deprecation warning.  "eager" always returns them correctly.
+        mdl  = AutoModelForSequenceClassification.from_pretrained(
+            save_dir, attn_implementation="eager"
+        ).to(DEVICE).eval()
         meta = json.loads((save_dir / "meta.json").read_text())
         loaded[key]           = (tok, mdl)
         model_accuracies[key] = meta.get("accuracy", 0.0)
+        # Temperature scaling: a single scalar T is learned post-training to
+        # make softmax confidences better calibrated (logits / T before softmax).
+        # T=1.0 is a no-op; T>1.0 softens probabilities toward uniform.
         cache = MODELS_DIR / key / "temperature.json"
         _temperatures[key] = json.loads(cache.read_text())["temperature"] if cache.exists() else 1.0
 
     if not loaded:
         raise RuntimeError("No models found — run train.py first")
 
+    # Default active model = highest validation accuracy at training time.
     best_key = max(model_accuracies, key=model_accuracies.get)
     print(f"[ml_engine] Best model: {best_key.upper()} ({model_accuracies[best_key]:.4f})")
 
-    # Load persisted admin override if it exists
+    # Admin can override the active model via the UI; the choice is persisted in
+    # active_model.json so it survives server restarts.
     _active_cfg = MODELS_DIR / "active_model.json"
     if _active_cfg.exists():
         try:
@@ -79,6 +150,8 @@ try:
     _ready = True
 
 except Exception as exc:
+    # Soft failure: the server still starts so the frontend can show a useful
+    # error message instead of a connection-refused.
     _error = str(exc)
     print(f"[ml_engine] WARNING: {exc}", file=sys.stderr)
 
@@ -90,6 +163,7 @@ def set_active_model(key: str) -> dict:
     if key not in loaded:
         return {"error": f"Model '{key}' not loaded"}
     best_key = key
+    # Persist the choice so it survives a server restart.
     (MODELS_DIR / "active_model.json").write_text(json.dumps({"active": key}))
     return {"active": key}
 
@@ -99,10 +173,16 @@ def get_active_model() -> str:
 
 
 # ── Retrain management ────────────────────────────────────────────────────────
+# Retraining runs in a background daemon thread so the HTTP request that
+# triggers it returns immediately. Progress is tracked in _retrain_status
+# and polled by the admin UI. Cancel support uses threading.Event: the
+# _CancelCallback checks the flag at the end of each epoch and tells the
+# Trainer to stop early — it never aborts mid-batch.
 
-_retrain_status: dict  = {}
-_cancel_flags:   dict  = {}   # key → threading.Event
+_retrain_status: dict = {}
+_cancel_flags:   dict = {}   # key → threading.Event, set by cancel_retrain()
 
+# HuggingFace Hub checkpoint names for each supported base model.
 _CHECKPOINTS = {
     "distilbert": "distilbert-base-uncased",
     "bert":       "bert-base-uncased",
@@ -153,7 +233,7 @@ def _do_retrain(key: str):
         SEED = 42
 
         _retrain_status[key]["progress"] = "Loading dataset..."
-        df = pd.read_csv(CSV_PATH)
+        df = pd.read_csv(get_active_csv_path())
         labels_list = sorted(df["label"].unique())
         l2id = {lbl: i for i, lbl in enumerate(labels_list)}
         id2l = {i: lbl for i, lbl in enumerate(labels_list)}
@@ -317,34 +397,31 @@ def _do_retrain(key: str):
 def promote_candidate(key: str) -> dict:
     global best_key
     candidate_dir = MODELS_DIR / f"{key}_candidate"
-    prod_dir      = MODELS_DIR / key
 
     if not candidate_dir.exists():
         return {"error": f"No candidate found for '{key}'"}
 
     try:
-        backup_dir = MODELS_DIR / f"{key}_backup"
-        if backup_dir.exists():
-            shutil.rmtree(backup_dir)
-        if prod_dir.exists():
-            shutil.copytree(prod_dir, backup_dir)
+        new_key = _next_version_key(key)
+        new_dir = MODELS_DIR / new_key
+        shutil.copytree(candidate_dir, new_dir)
 
-        if prod_dir.exists():
-            shutil.rmtree(prod_dir)
-        shutil.copytree(candidate_dir, prod_dir)
+        tok = AutoTokenizer.from_pretrained(new_dir)
+        mdl = AutoModelForSequenceClassification.from_pretrained(new_dir).to(DEVICE).eval()
+        loaded[new_key] = (tok, mdl)
 
-        tok = AutoTokenizer.from_pretrained(prod_dir)
-        mdl = AutoModelForSequenceClassification.from_pretrained(prod_dir).to(DEVICE).eval()
-        loaded[key] = (tok, mdl)
-
-        temp_cache = prod_dir / "temperature.json"
-        _temperatures[key] = (
+        temp_cache = new_dir / "temperature.json"
+        _temperatures[new_key] = (
             json.loads(temp_cache.read_text())["temperature"]
             if temp_cache.exists() else 1.0
         )
 
+        best_key = new_key
+        (MODELS_DIR / "active_model.json").write_text(json.dumps({"active": new_key}))
+
+        shutil.rmtree(candidate_dir)
         _retrain_status.pop(key, None)
-        return {"message": f"{key} candidate promoted to production"}
+        return {"message": f"{key} candidate saved as {new_key}", "new_key": new_key}
 
     except Exception as exc:
         return {"error": str(exc)}
@@ -359,9 +436,30 @@ def discard_candidate(key: str) -> dict:
     return {"message": f"{key} candidate discarded"}
 
 
+def delete_model_version(version_key: str) -> dict:
+    global best_key
+    if version_key not in loaded:
+        return {"error": f"Model '{version_key}' not found"}
+    if version_key == best_key:
+        return {"error": "Cannot delete the active model. Set a different model as active first."}
+    model_dir = MODELS_DIR / version_key
+    if model_dir.exists():
+        shutil.rmtree(model_dir)
+    del loaded[version_key]
+    _temperatures.pop(version_key, None)
+    return {"message": f"Model '{version_key}' deleted successfully"}
+
+
 # ── Inference helpers ─────────────────────────────────────────────────────────
 
 def _build_text(n, p, k, ph, temp, hum, rain) -> str:
+    """Convert 7 numeric features into the natural-language sentence the model was trained on.
+
+    The template adds qualitative descriptors ("high"/"low", "warm"/"cool", etc.)
+    anchored to the training-set mean.  Both the raw number AND the descriptor are
+    included so the tokenizer sees stable keywords that BERT can attend to —
+    which is what the attention-based reasoning step later relies on.
+    """
     n_desc    = "high"  if n    > stats_raw.get("N", 50)        else "low"
     p_desc    = "high"  if p    > stats_raw.get("P", 50)        else "low"
     k_desc    = "high"  if k    > stats_raw.get("K", 50)        else "low"
@@ -378,19 +476,25 @@ def _build_text(n, p, k, ph, temp, hum, rain) -> str:
     )
 
 
-def predict_crop(n: float, p: float, k: float, ph: float,
-                 temp: float, hum: float, rain: float) -> dict:
-    if not _ready:
-        return {"error": _error or "Models not loaded"}
+def _run_inference(active: str, n: float, p: float, k: float, ph: float,
+                   temp: float, hum: float, rain: float) -> dict:
+    """Internal inference on a specific, already-snapshotted model key.
 
-    tok, mdl = loaded[best_key]
+    All callers (predict_crop, compute_shap, generate_reasoning) snapshot
+    best_key into a local variable ONCE and pass it here, so the tokenizer,
+    model weights, temperature scalar, and model_used label all come from
+    the same model even if an admin switches the active model mid-request.
+    """
+    tok, mdl = loaded[active]
     text     = _build_text(n, p, k, ph, temp, hum, rain)
     inputs   = tok(
         text, return_tensors="pt",
         truncation=True, padding="max_length", max_length=MAX_LENGTH,
     ).to(DEVICE)
     with torch.no_grad():
-        logits = mdl(**inputs).logits / _temperatures[best_key]
+        # Divide logits by temperature BEFORE softmax to calibrate confidence.
+        # Without this the model tends to be overconfident (probabilities cluster near 1.0).
+        logits = mdl(**inputs).logits / _temperatures[active]
         probs  = torch.softmax(logits, dim=-1)[0]
 
     prob_dict  = {id2label[i]: float(probs[i]) for i in range(len(labels))}
@@ -402,11 +506,24 @@ def predict_crop(n: float, p: float, k: float, ph: float,
         "recommended_crop": top_crop,
         "confidence":       round(confidence * 100, 2),
         "top5":             [{"crop": c, "probability": round(prob * 100, 2)} for c, prob in top5],
-        "model_used":       best_key.upper(),
+        "model_used":       active.upper(),
     }
 
 
+def predict_crop(n: float, p: float, k: float, ph: float,
+                 temp: float, hum: float, rain: float) -> dict:
+    if not _ready:
+        return {"error": _error or "Models not loaded"}
+    # Snapshot best_key once — all reads within this request use the same model.
+    active = best_key
+    return _run_inference(active, n, p, k, ph, temp, hum, rain)
+
+
 _FEATURE_NAMES = ["N", "P", "K", "pH", "Temperature", "Humidity", "Rainfall"]
+
+# SHAP baseline: a single row of training-set feature means.
+# KernelExplainer computes SHAP values as deviations from this baseline prediction.
+# Using the mean is standard practice — it represents the "average field" from the dataset.
 _BACKGROUND = np.array([[
     stats_raw.get("N",           50.0),
     stats_raw.get("P",           53.0),
@@ -423,16 +540,25 @@ def compute_shap(n: float, p: float, k: float, ph: float,
     if not _ready:
         return {"error": _error or "Models not loaded"}
 
-    tok_obj, mdl_obj = loaded[best_key]
-    temp_scale = _temperatures[best_key]
+    # Snapshot best_key ONCE. All subsequent reads (tok_obj, temp_scale, predict, closure)
+    # use `active` so the entire SHAP computation is locked to a single model.
+    active     = best_key
+    tok_obj, mdl_obj = loaded[active]
+    temp_scale = _temperatures[active]
 
-    top_result = predict_crop(n, p, k, ph, temp, hum, rain)
+    top_result = _run_inference(active, n, p, k, ph, temp, hum, rain)
     if "error" in top_result:
         return top_result
 
     top_crop  = top_result["recommended_crop"]
     class_idx = label2id[top_crop]
 
+    # _predict_fn is the black-box function SHAP treats as the model.
+    # It receives a 2-D numpy array of feature rows, converts each row back to
+    # the NLP text template, runs them through the BERT model in batches, and
+    # returns the probability of the TOP predicted class for each row.
+    # KernelExplainer calls this function ~100*n_features times (nsamples=100),
+    # which is why SHAP takes ~30 s — it has no knowledge of the model internals.
     def _predict_fn(X: np.ndarray) -> np.ndarray:
         texts = [
             _build_text(float(r[0]), float(r[1]), float(r[2]),
@@ -454,6 +580,8 @@ def compute_shap(n: float, p: float, k: float, ph: float,
 
     x         = np.array([[n, p, k, ph, temp, hum, rain]])
     explainer = shap.KernelExplainer(_predict_fn, _BACKGROUND)
+    # nsamples=100: number of random coalitions per feature. Higher = more accurate
+    # but slower. 100 is enough for 7 features and an FYP demo context.
     sv        = explainer.shap_values(x, nsamples=100, silent=True)
 
     return {
@@ -461,10 +589,19 @@ def compute_shap(n: float, p: float, k: float, ph: float,
         "base_value": round(float(explainer.expected_value), 4),
         "values":     {name: round(float(v), 4)
                        for name, v in zip(_FEATURE_NAMES, sv[0])},
+        "model_used": active.upper(),
     }
 
 
 # ── BERT attention-based reasoning ────────────────────────────────────────────
+# This is a SEPARATE XAI method from SHAP — the two serve different purposes:
+#   SHAP → numeric attribution (which features pushed the probability up/down)
+#   Attention → readable sentence (which parts of the text the model "looked at")
+#
+# Method: extract CLS-token attention weights from the last transformer layer,
+# average across all heads, then map known feature keywords to their token
+# positions.  The 3 features whose keyword tokens attracted the most CLS
+# attention are considered the model's top reasons for the prediction.
 
 _FEAT_KEYWORDS = {
     "N":           ["nitrogen"],
@@ -482,10 +619,12 @@ def generate_reasoning(n: float, p: float, k: float, ph: float,
     if not _ready:
         return {"error": _error or "Models not loaded"}
 
-    tok_obj, mdl_obj = loaded[best_key]
-    temp_scale = _temperatures[best_key]
+    # Snapshot best_key ONCE so tokenizer, model, and predicted crop all come
+    # from the same model even if an admin switches mid-request.
+    active     = best_key
+    tok_obj, mdl_obj = loaded[active]
 
-    top_result = predict_crop(n, p, k, ph, temp, hum, rain)
+    top_result = _run_inference(active, n, p, k, ph, temp, hum, rain)
     if "error" in top_result:
         return top_result
     crop = top_result["recommended_crop"]
@@ -496,10 +635,15 @@ def generate_reasoning(n: float, p: float, k: float, ph: float,
     tokens = [t.lower() for t in tok_obj.convert_ids_to_tokens(inputs["input_ids"][0])]
 
     with torch.no_grad():
+        # output_attentions=True returns a tuple of attention tensors per layer.
         out = mdl_obj(**inputs, output_attentions=True)
 
+    # Shape: (heads, seq_len, seq_len) → take the last layer, CLS row (index 0),
+    # average across all attention heads → 1-D vector of length seq_len.
     cls_attn = out.attentions[-1][0, :, 0, :].mean(dim=0).cpu().numpy()
 
+    # For each feature, find which token positions correspond to its keywords
+    # and average the CLS attention at those positions.
     feat_scores = {}
     for feat, keywords in _FEAT_KEYWORDS.items():
         idx = [i for i, t in enumerate(tokens)
@@ -553,6 +697,7 @@ def generate_reasoning(n: float, p: float, k: float, ph: float,
         "reasoning":         sentence,
         "top_features":      top3,
         "feature_attention": {k: round(v, 5) for k, v in ranked},
+        "model_used":        active.upper(),
     }
 
 
@@ -566,12 +711,18 @@ def get_model_info() -> dict:
 
     models_data = {}
     for key in loaded:
+        m    = _VERSION_RE.match(key)
+        base = m.group(1) if m else key
+        ver  = int(m.group(3)) if m and m.group(3) else 1
         meta_path = MODELS_DIR / key / "meta.json"
         meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
         cm_path = MODELS_DIR / key / "confusion_matrix.json"
         cm = json.loads(cm_path.read_text()) if cm_path.exists() else None
         models_data[key] = {
-            "name":             key.upper(),
+            "name":             f"{base.upper()} v{ver}",
+            "base":             base,
+            "version":          ver,
+            "key":              key,
             "accuracy":         round(meta.get("accuracy",  0) * 100, 2),
             "precision":        round(meta.get("precision", 0) * 100, 2),
             "recall":           round(meta.get("recall",    0) * 100, 2),
@@ -579,7 +730,7 @@ def get_model_info() -> dict:
             "confusion_matrix": cm,
         }
 
-    return {"best_model": best_key.upper(), "models": models_data, "labels": labels}
+    return {"active": best_key, "best_model": best_key.upper(), "models": models_data, "labels": labels}
 
 
 def compute_confusion_matrix(key: str) -> dict:
@@ -594,7 +745,7 @@ def compute_confusion_matrix(key: str) -> dict:
     temp_scale = _temperatures[key]
 
     rows = []
-    with open(CSV_PATH, newline="", encoding="utf-8") as f:
+    with open(get_active_csv_path(), newline="", encoding="utf-8") as f:
         for row in _csv.DictReader(f):
             rows.append(row)
 

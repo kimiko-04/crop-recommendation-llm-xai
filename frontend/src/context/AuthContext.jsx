@@ -11,11 +11,30 @@ function decodeToken(token) {
   }
 }
 
+// Returns false if the token is missing, malformed, or past its exp claim.
+// This prevents an expired token sitting in localStorage from bypassing
+// ProtectedRoute and AdminRoute until the first API call returns a 401.
+function isTokenValid(token) {
+  if (!token) return false;
+  const payload = decodeToken(token);
+  if (!payload || !payload.exp) return false;
+  return payload.exp * 1000 > Date.now();
+}
+
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [user, setUser]   = useState(() => {
+  const [token, setToken] = useState(() => {
     const t = localStorage.getItem("token");
-    return t ? decodeToken(t) : null;
+    if (!isTokenValid(t)) {
+      // Clear stale/expired tokens immediately so routes redirect to login.
+      localStorage.removeItem("token");
+      return null;
+    }
+    return t;
+  });
+
+  const [user, setUser] = useState(() => {
+    const t = localStorage.getItem("token");
+    return isTokenValid(t) ? decodeToken(t) : null;
   });
 
   const saveToken = (t) => {
