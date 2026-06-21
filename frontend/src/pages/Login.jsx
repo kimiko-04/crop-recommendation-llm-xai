@@ -29,17 +29,25 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen relative flex items-center justify-center px-4 overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: "url('https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=1600&q=80')",
+          filter: "blur(4px) brightness(0.45)",
+          transform: "scale(1.05)",
+        }}
+      />
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 text-emerald-600 font-bold text-2xl">
-            <span className="text-3xl">🌾</span>
-            <span>CropAI</span>
+          <Link to="/" className="inline-flex items-center text-emerald-400 font-bold text-2xl">
+            <span>SmartCrop</span>
           </Link>
-          <p className="text-slate-500 dark:text-slate-400 mt-2">Sign in to your account</p>
+          <p className="text-white/70 mt-2">Sign in to your account</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
+        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl shadow-md border border-slate-200 dark:border-slate-700 p-8">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-6">Welcome back</h1>
 
           {error && (
@@ -94,15 +102,15 @@ export default function Login() {
           </p>
         </div>
 
-        <p className="text-center mt-4 text-slate-400 dark:text-slate-500 text-sm">
+        <p className="text-center mt-4 text-white/60 text-sm">
           Administrator?{" "}
-          <Link to="/admin/login" className="text-amber-500 hover:underline font-medium">
+          <Link to="/admin/login" className="text-amber-400 hover:underline font-medium">
             Sign in here
           </Link>
         </p>
 
         <p className="text-center mt-3">
-          <Link to="/" className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-sm transition-colors">
+          <Link to="/" className="text-white/50 hover:text-white/80 text-sm transition-colors">
             ← Back to home
           </Link>
         </p>
@@ -110,3 +118,4 @@ export default function Login() {
     </div>
   );
 }
+

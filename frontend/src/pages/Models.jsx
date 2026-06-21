@@ -169,25 +169,31 @@ export default function Models() {
   const activeModel = activeTab && info.models[activeTab];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen relative overflow-hidden">
+      <div
+        className="fixed inset-0 bg-cover bg-center -z-10"
+        style={{
+          backgroundImage: "url('https://plus.unsplash.com/premium_photo-1664298984101-5c9f1d09f1c3?w=1600&q=80')",
+          filter: "blur(4px) brightness(0.4)",
+          transform: "scale(1.05)",
+        }}
+      />
+      <div className="fixed inset-0 bg-slate-900/55 -z-10" />
       <Navbar />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
 
         {/* Active model banner */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 text-white mb-8 flex items-center gap-4">
-          <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">🤖</div>
-          <div>
-            <p className="text-emerald-200 text-sm font-medium">Active recommendation model</p>
-            <p className="text-2xl font-bold mt-0.5">{info.best_model}</p>
-            <p className="text-emerald-200 text-sm mt-0.5">
-              Selected automatically based on highest validation accuracy
-            </p>
-          </div>
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 text-white mb-8 shadow-md">
+          <p className="text-emerald-200 text-sm font-medium">Active recommendation model</p>
+          <p className="text-2xl font-bold mt-0.5">{info.best_model}</p>
+          <p className="text-emerald-200 text-sm mt-0.5">
+            Model is selected based on the highest validation accuracy
+          </p>
         </div>
 
         {/* Model comparison cards */}
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Model Performance</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">Model Performance</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
           {modelKeys.map((key) => {
             const m = info.models[key];
@@ -195,10 +201,10 @@ export default function Models() {
             return (
               <div
                 key={key}
-                className={`bg-white dark:bg-slate-800 rounded-2xl border p-6 ${isBest ? "border-emerald-400 dark:border-emerald-600" : "border-slate-200 dark:border-slate-700"}`}
+                className={`bg-white dark:bg-slate-800 rounded-2xl border p-6 transition-shadow ${isBest ? "border-emerald-400 dark:border-emerald-600 shadow-md" : "border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md"}`}
               >
                 <div className="flex items-center gap-3 mb-5">
-                  <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">{m.name}</h3>
+                  <h3 className="text-xl font-bold text-white">{m.name}</h3>
                   {isBest && (
                     <span className="text-xs bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full font-semibold">
                       ✓ In use
@@ -217,7 +223,7 @@ export default function Models() {
         </div>
 
         {/* Confusion matrix section */}
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Confusion Matrix</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">Confusion Matrix</h2>
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
@@ -237,7 +243,7 @@ export default function Models() {
         </div>
 
         {activeModel && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
             {activeModel.confusion_matrix ? (
               <ConfusionMatrix cm={activeModel.confusion_matrix} />
             ) : (

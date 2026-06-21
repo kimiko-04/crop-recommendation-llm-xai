@@ -45,18 +45,26 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen relative flex items-center justify-center px-4 overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: "url('https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=1600&q=80')",
+          filter: "blur(4px) brightness(0.35)",
+          transform: "scale(1.05)",
+        }}
+      />
+      <div className="absolute inset-0 bg-slate-900/60" />
+      <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 text-amber-400 font-bold text-2xl">
-            <span className="text-3xl">🌾</span>
-            <span>CropAI</span>
+          <Link to="/" className="inline-flex items-center text-amber-400 font-bold text-2xl">
+            <span>SmartCrop</span>
           </Link>
           <p className="text-slate-400 mt-2 text-sm">Administrator Portal</p>
         </div>
 
-        <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-8">
+        <div className="bg-slate-800/60 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-700 p-8">
           {/* Shield icon + heading */}
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-xl">
@@ -123,7 +131,7 @@ export default function AdminLogin() {
         <p className="text-center mt-6">
           <Link
             to="/"
-            className="text-slate-500 hover:text-slate-300 text-sm transition-colors"
+            className="text-white/50 hover:text-white/80 text-sm transition-colors"
           >
             ← Back to home
           </Link>

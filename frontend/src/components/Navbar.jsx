@@ -13,11 +13,10 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-50">
+    <nav className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/70 dark:border-slate-700/70 sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 text-emerald-600 font-bold text-xl">
-          <span className="text-2xl">🌾</span>
-          <span>CropAI</span>
+        <Link to="/" className="flex items-center text-emerald-600 font-bold text-xl">
+          <span>SmartCrop</span>
         </Link>
 
         <div className="flex items-center gap-4">
@@ -37,6 +36,12 @@ export default function Navbar() {
                 className="text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 font-medium transition-colors"
               >
                 Dashboard
+              </Link>
+              <Link
+                to="/history"
+                className="text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 font-medium transition-colors"
+              >
+                History
               </Link>
               <Link
                 to="/models"
@@ -74,7 +79,7 @@ export default function Navbar() {
                 to="/register"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
               >
-                Get Started
+                Register Now
               </Link>
             </>
           )}

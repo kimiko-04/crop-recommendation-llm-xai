@@ -1,15 +1,28 @@
+"""
+Admin routes — all require a JWT with role="admin".
+
+Covers four concern areas:
+  1. User management  — list, toggle active/disabled, delete, clear history
+  2. Model management — switch active model, trigger/cancel retrain, promote/discard candidates
+  3. Analytics        — total predictions, top-10 recommended crops
+  4. Drift monitoring — PSI-based comparison of recent predictions vs training distribution
+  5. Dataset          — upload a custom training CSV or reset to the default one
+"""
+import io
 import os
 import json
 import csv as _csv
 import numpy as np
-from fastapi import APIRouter, HTTPException, Depends
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from database import users_collection, predictions_collection
 from ml_engine import (
     loaded, get_model_info, compute_confusion_matrix,
     set_active_model, start_retrain, get_retrain_status, cancel_retrain,
-    promote_candidate, discard_candidate, MODELS_DIR, stats_raw,
+    promote_candidate, discard_candidate, delete_model_version,
+    MODELS_DIR, stats_raw, get_active_csv_path,
 )
 
 SECRET_KEY    = os.getenv("SECRET_KEY", "change-me-in-production-use-env-file")
@@ -20,6 +33,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 async def _get_admin(token: str = Depends(oauth2_scheme)) -> str:
+    """Verify the JWT and confirm the caller has role='admin'."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("role") != "admin":
@@ -162,6 +176,14 @@ def discard_model_candidate(key: str, _: str = Depends(_get_admin)):
     return result
 
 
+@router.delete("/models/version/{version_key}")
+def delete_model_version_endpoint(version_key: str, _: str = Depends(_get_admin)):
+    result = delete_model_version(version_key)
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
+
+
 @router.post("/models/compute-matrix/{key}")
 def admin_compute_matrix(key: str, _: str = Depends(_get_admin)):
     if key not in loaded:
@@ -219,17 +241,120 @@ _FEATURE_MAP = {
     "rainfall":    ("rainfall",    "Rainfall"),
 }
 
-CSV_PATH = MODELS_DIR.parent / "Crop_recommendation.csv"
+_REQUIRED_COLS = {"N", "P", "K", "temperature", "humidity", "ph", "rainfall", "label"}
+
+
+@router.get("/dataset/info")
+def get_dataset_info(_: str = Depends(_get_admin)):
+    csv_path = get_active_csv_path()
+    cfg_path = MODELS_DIR / "active_dataset.json"
+    is_custom = cfg_path.exists()
+    name = json.loads(cfg_path.read_text()).get("name", csv_path.name) if is_custom else "Crop_recommendation.csv"
+    uploaded_at = json.loads(cfg_path.read_text()).get("uploaded_at") if is_custom else None
+
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        rows = list(_csv.DictReader(f))
+    crops = sorted({r["label"].strip() for r in rows if r.get("label", "").strip()})
+    return {
+        "is_custom":   is_custom,
+        "filename":    name,
+        "uploaded_at": uploaded_at,
+        "rows":        len(rows),
+        "crops":       crops,
+        "crop_count":  len(crops),
+    }
+
+
+@router.post("/dataset/upload")
+async def upload_dataset(file: UploadFile = File(...), _: str = Depends(_get_admin)):
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(400, "Only .csv files are supported")
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "File must be UTF-8 encoded")
+
+    reader = _csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(400, "CSV file is empty or has no header row")
+
+    missing = _REQUIRED_COLS - set(reader.fieldnames)
+    if missing:
+        raise HTTPException(400, f"Missing required columns: {', '.join(sorted(missing))}")
+
+    rows = list(reader)
+    if len(rows) < 50:
+        raise HTTPException(400, f"Dataset too small ({len(rows)} rows). Minimum 50 rows required.")
+
+    for col in ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"]:
+        bad = sum(1 for r in rows if not _is_numeric(r.get(col, "")))
+        if bad:
+            raise HTTPException(400, f"Column '{col}' contains {bad} non-numeric value(s)")
+
+    empty_labels = sum(1 for r in rows if not r.get("label", "").strip())
+    if empty_labels:
+        raise HTTPException(400, f"Column 'label' has {empty_labels} empty value(s)")
+
+    crops = sorted({r["label"].strip() for r in rows})
+    if len(crops) < 2:
+        raise HTTPException(400, "Dataset must contain at least 2 crop classes")
+
+    save_path = MODELS_DIR.parent / "uploaded_dataset.csv"
+    save_path.write_bytes(content)
+
+    cfg = {
+        "path":        str(save_path),
+        "name":        file.filename,
+        "uploaded_at": datetime.now().isoformat(),
+    }
+    (MODELS_DIR / "active_dataset.json").write_text(json.dumps(cfg))
+
+    return {
+        "message":    f"Dataset '{file.filename}' uploaded successfully",
+        "filename":   file.filename,
+        "rows":       len(rows),
+        "crops":      crops,
+        "crop_count": len(crops),
+    }
+
+
+@router.delete("/dataset")
+def reset_dataset(_: str = Depends(_get_admin)):
+    cfg_path = MODELS_DIR / "active_dataset.json"
+    if cfg_path.exists():
+        cfg_path.unlink()
+    upload_path = MODELS_DIR.parent / "uploaded_dataset.csv"
+    if upload_path.exists():
+        upload_path.unlink()
+    return {"message": "Reset to default dataset (Crop_recommendation.csv)"}
+
+
+def _is_numeric(val: str) -> bool:
+    try:
+        float(val.strip())
+        return True
+    except (ValueError, AttributeError):
+        return False
 
 
 def _compute_psi(expected: np.ndarray, actual: np.ndarray, n_bins: int = _PSI_BINS) -> float:
     """
-    Population Stability Index between expected (training) and actual
+    Population Stability Index (PSI) between expected (training) and actual
     (recent predictions) distributions.
 
-    Reference: Yurdakul (2018), Western Michigan University.
+    PSI = Σ (actual% - expected%) * ln(actual% / expected%)
+
+    Equal-frequency binning is used on the expected (training) data so each bin
+    holds the same number of training samples. The actual (recent prediction)
+    data is then counted into those same bin edges — this avoids empty bins in
+    the reference distribution, which would make log(0) undefined.
+
+    Reference: Yurdakul, B. (2018). Western Michigan University.
     """
-    # Bin edges from equal-frequency binning of the expected (training) data
+    # Build bin edges from the training data using equal-frequency (quantile) binning.
+    # np.unique removes duplicate edges that appear when many values share the same number.
     percentiles = np.linspace(0, 100, n_bins + 1)
     breakpoints = np.unique(np.percentile(expected, percentiles))
 
@@ -239,7 +364,7 @@ def _compute_psi(expected: np.ndarray, actual: np.ndarray, n_bins: int = _PSI_BI
     exp_counts = np.histogram(expected, bins=breakpoints)[0].astype(float)
     act_counts = np.histogram(actual,   bins=breakpoints)[0].astype(float)
 
-    # Convert to proportions; replace zeros to avoid log(0)
+    # Replace zero counts with a tiny epsilon to keep log() defined.
     exp_pct = np.where(exp_counts == 0, 1e-4, exp_counts / len(expected))
     act_pct = np.where(act_counts == 0, 1e-4, act_counts / len(actual))
 
@@ -250,7 +375,7 @@ def _compute_psi(expected: np.ndarray, actual: np.ndarray, n_bins: int = _PSI_BI
 def _load_training_data() -> dict:
     """Read training CSV and return per-feature value lists."""
     data: dict = {k: [] for k in _FEATURE_MAP}
-    with open(CSV_PATH, newline="", encoding="utf-8") as f:
+    with open(get_active_csv_path(), newline="", encoding="utf-8") as f:
         for row in _csv.DictReader(f):
             for col in _FEATURE_MAP:
                 try:

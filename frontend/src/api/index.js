@@ -1,3 +1,6 @@
+// All HTTP calls to the FastAPI backend go through this single module.
+// Components never call fetch() directly — they import { api } and call named methods.
+
 const BASE = "http://localhost:8000";
 
 async function request(path, options = {}) {
@@ -8,6 +11,8 @@ async function request(path, options = {}) {
   });
   const data = await res.json();
   if (!res.ok) {
+    // FastAPI validation errors come as an array under data.detail;
+    // application errors come as a plain string. Both are normalised to a single message.
     const detail = data.detail;
     const msg = Array.isArray(detail)
       ? detail.map((e) => e.msg).join(", ")
@@ -49,6 +54,17 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(fields),
+    }),
+
+  history: (token, page = 1, limit = 20) =>
+    request(`/predict/history?page=${page}&limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
+  deleteHistoryItem: (token, timestamp) =>
+    request(`/predict/history/${encodeURIComponent(timestamp)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
     }),
 
   // ── Admin ──────────────────────────────────────────────────────────────────
@@ -110,6 +126,12 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
     }),
 
+  adminDeleteModelVersion: (token, versionKey) =>
+    request(`/admin/models/version/${encodeURIComponent(versionKey)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
   adminAnalytics: (token) =>
     request("/admin/analytics", {
       headers: { Authorization: `Bearer ${token}` },
@@ -128,6 +150,36 @@ export const api = {
 
   adminClearAllHistory: (token) =>
     request("/admin/predictions", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
+  adminDatasetInfo: (token) =>
+    request("/admin/dataset/info", {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
+  adminUploadDataset: async (token, file) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${BASE}/admin/dataset/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map((e) => e.msg).join(", ")
+        : detail || "Upload failed";
+      throw new Error(msg);
+    }
+    return data;
+  },
+
+  adminResetDataset: (token) =>
+    request("/admin/dataset", {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     }),
