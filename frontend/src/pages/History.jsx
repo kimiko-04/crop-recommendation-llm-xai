@@ -4,15 +4,33 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
 
-const CROP_EMOJI = {
-  rice: "🌾", wheat: "🌾", maize: "🌽", apple: "🍎", banana: "🍌",
-  mango: "🥭", grapes: "🍇", watermelon: "🍉", orange: "🍊", papaya: "🧡",
-  coconut: "🥥", cotton: "🌿", coffee: "☕", jute: "🌿",
-  default: "🌱",
+const CROP_WIKI = {
+  rice: "Rice", wheat: "Wheat", maize: "Maize", apple: "Apple",
+  banana: "Banana", mango: "Mango", grapes: "Grape", watermelon: "Watermelon",
+  orange: "Orange_(fruit)", papaya: "Papaya", coconut: "Coconut",
+  cotton: "Cotton", coffee: "Coffee", jute: "Jute", chickpea: "Chickpea",
+  kidneybeans: "Kidney_bean", pigeonpeas: "Pigeon_pea", mothbeans: "Moth_bean",
+  mungbean: "Mung_bean", blackgram: "Vigna_mungo", lentil: "Lentil",
+  pomegranate: "Pomegranate",
 };
 
-function cropEmoji(name = "") {
-  return CROP_EMOJI[name.toLowerCase()] || CROP_EMOJI.default;
+function CropThumb({ name, className }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    const title = CROP_WIKI[name?.toLowerCase()];
+    if (!title) return;
+    fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.thumbnail?.source) setSrc(d.thumbnail.source); })
+      .catch(() => {});
+  }, [name]);
+  if (!src) return null;
+  return (
+    <img
+      src={src} alt={name} className={className}
+      onError={(e) => { e.currentTarget.style.display = "none"; }}
+    />
+  );
 }
 
 function relativeTime(iso) {
@@ -107,7 +125,7 @@ function HistoryReportPanel({ item }) {
           Recommended Crop
         </div>
         <div style={{ fontSize: "26px", fontWeight: "700", color: "#064e3b", textTransform: "capitalize", marginBottom: "8px" }}>
-          {cropEmoji(result.recommended_crop ?? "")} {result.recommended_crop ?? "—"}
+          {result.recommended_crop ?? "—"}
         </div>
         <div style={{ fontSize: "13px", color: "#166534", marginBottom: "8px" }}>
           Confidence: <strong>{result.confidence ?? 0}%</strong>
@@ -145,7 +163,7 @@ function HistoryReportPanel({ item }) {
               <div key={entry.crop} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <span style={{ width: "16px", color: "#94a3b8", fontSize: "12px", textAlign: "right" }}>{i + 1}</span>
                 <span style={{ width: "110px", fontSize: "13px", color: "#1e293b", textTransform: "capitalize", fontWeight: i === 0 ? "600" : "400" }}>
-                  {cropEmoji(entry.crop)} {entry.crop}
+                  {entry.crop}
                 </span>
                 <div style={{ flex: 1, height: "8px", background: "#f1f5f9", borderRadius: "4px", overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${Math.min(entry.probability, 100)}%`, background: i === 0 ? "#059669" : "#34d399", borderRadius: "4px" }} />
@@ -177,8 +195,8 @@ function PredictionCard({ item, onReload, onDownload, isDownloading, onDelete, i
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       {/* Card header */}
       <div className="flex items-center gap-4 p-4 sm:p-5">
-        <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center text-2xl shrink-0">
-          {cropEmoji(crop)}
+        <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 overflow-hidden shrink-0 flex items-center justify-center">
+          <CropThumb name={crop} className="w-full h-full object-cover" />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -249,7 +267,10 @@ function PredictionCard({ item, onReload, onDownload, isDownloading, onDelete, i
             onClick={() => setExpanded((v) => !v)}
             className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
-            {expanded ? "▲" : "▼"}
+            {expanded
+              ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg>
+              : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            }
           </button>
         </div>
       </div>
@@ -284,7 +305,9 @@ function PredictionCard({ item, onReload, onDownload, isDownloading, onDelete, i
             {item.result.top5.map((entry, i) => (
               <div key={entry.crop} className="flex items-center gap-3">
                 <span className="text-slate-400 dark:text-slate-500 text-xs w-4 text-right">{i + 1}</span>
-                <span>{cropEmoji(entry.crop)}</span>
+                <div className="w-7 h-7 rounded-md overflow-hidden bg-emerald-50 dark:bg-slate-700 shrink-0">
+                  <CropThumb name={entry.crop} className="w-full h-full object-cover" />
+                </div>
                 <span className="capitalize text-sm text-slate-700 dark:text-slate-300 flex-1">{entry.crop}</span>
                 <div className="flex items-center gap-2 w-36">
                   <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -317,12 +340,13 @@ export default function History() {
   const [reportItem,    setReportItem]    = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [deletingId,    setDeletingId]    = useState(null);
+  const [modelFilter,   setModelFilter]   = useState(null);
 
-  const load = useCallback(async (p) => {
+  const load = useCallback(async (p, filter = modelFilter) => {
     setLoading(true);
     setError("");
     try {
-      const res = await api.history(token, p, 20);
+      const res = await api.history(token, p, 20, filter);
       setData(res);
       setPage(p);
     } catch (err) {
@@ -330,9 +354,14 @@ export default function History() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, modelFilter]);
 
   useEffect(() => { load(1); }, [load]);
+
+  const handleModelFilter = (value) => {
+    setModelFilter(value);
+    load(1, value);
+  };
 
   // PDF generation is a two-step async dance:
   //   1. handleDownload sets reportItem → React re-renders HistoryReportPanel with real data.
@@ -441,25 +470,48 @@ export default function History() {
       <HistoryReportPanel item={reportItem} />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
-        <div className="mb-8">
+        <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Prediction History</h1>
           <p className="text-white/60 mt-1">
             All your past crop recommendations, newest first.
           </p>
         </div>
 
+        {/* Model filter tabs */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            { label: "All Models",    value: null          },
+            { label: "BERT",          value: "BERT"        },
+            { label: "BERT V2",       value: "BERT_V2"     },
+            { label: "DistilBERT",    value: "DISTILBERT"  },
+            { label: "DistilBERT V2", value: "DISTILBERT_V2" },
+          ].map((tab) => (
+            <button
+              key={tab.label}
+              onClick={() => handleModelFilter(tab.value)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                modelFilter === tab.value
+                  ? "bg-emerald-600 border-emerald-600 text-white"
+                  : "bg-white/10 border-white/20 text-white/70 hover:bg-white/20 hover:text-white"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         {/* Stats */}
         {total > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
             <StatCard
-              label="Total predictions"
+              label={modelFilter ? `${modelFilter.replace("_", " ")} predictions` : "Total predictions"}
               value={total}
               sub={firstDate ? `since ${firstDate}` : undefined}
             />
             {topCrop && (
               <StatCard
                 label="Most recommended"
-                value={`${cropEmoji(topCrop[0])} ${topCrop[0]}`}
+                value={topCrop[0]}
                 sub={`${topCrop[1]} time${topCrop[1] !== 1 ? "s" : ""} on this page`}
               />
             )}
@@ -503,7 +555,6 @@ export default function History() {
         {/* Empty state */}
         {!loading && total === 0 && (
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-12 flex flex-col items-center text-center">
-            <div className="text-5xl mb-4">📋</div>
             <h2 className="font-semibold text-slate-800 dark:text-slate-100 text-lg mb-1">No predictions yet</h2>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">
               Run your first crop recommendation and it will appear here.

@@ -5,13 +5,13 @@ import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
 
 const FIELDS = [
-  { key: "n",           label: "Nitrogen (N)",   icon: "🌿", unit: "mg/kg", min: 0,   max: 300, step: 1,   def: 50,  hint: "Amount of nitrogen in the soil, essential for leaf and stem growth." },
-  { key: "p",           label: "Phosphorus (P)", icon: "🌸", unit: "mg/kg", min: 0,   max: 300, step: 1,   def: 50,  hint: "Amount of phosphorus in the soil, which drives root development and flowering." },
-  { key: "k",           label: "Potassium (K)",  icon: "🛡️", unit: "mg/kg", min: 0,   max: 300, step: 1,   def: 50,  hint: "Amount of potassium in the soil, which boosts disease resistance and fruit quality." },
-  { key: "ph",          label: "Soil pH",         icon: "⚖️", unit: "",      min: 3.5, max: 9.5, step: 0.1, def: 6.5, hint: "Measure of soil acidity or alkalinity, where most crops thrive between 5.5 and 7.5." },
-  { key: "temperature", label: "Temperature",     icon: "🌡️", unit: "°C",    min: 10,  max: 50,  step: 0.5, def: 25,  hint: "Average ambient air temperature of the growing area in degrees Celsius." },
-  { key: "humidity",    label: "Humidity",        icon: "💧", unit: "%",     min: 10,  max: 100, step: 1,   def: 60,  hint: "Relative moisture level in the air, expressed as a percentage." },
-  { key: "rainfall",    label: "Rainfall",        icon: "🌧️", unit: "mm",    min: 20,  max: 500, step: 5,   def: 100, hint: "Average annual rainfall the field receives, measured in millimetres." },
+  { key: "n",           label: "Nitrogen (N)",   unit: "mg/kg", min: 0,   max: 300, step: 1,   def: 50,  hint: "Amount of nitrogen in the soil, essential for leaf and stem growth." },
+  { key: "p",           label: "Phosphorus (P)", unit: "mg/kg", min: 0,   max: 300, step: 1,   def: 50,  hint: "Amount of phosphorus in the soil, which drives root development and flowering." },
+  { key: "k",           label: "Potassium (K)",  unit: "mg/kg", min: 0,   max: 300, step: 1,   def: 50,  hint: "Amount of potassium in the soil, which boosts disease resistance and fruit quality." },
+  { key: "ph",          label: "Soil pH",         unit: "",      min: 3.5, max: 9.5, step: 0.1, def: 6.5, hint: "Measure of soil acidity or alkalinity, where most crops thrive between 5.5 and 7.5." },
+  { key: "temperature", label: "Temperature",     unit: "°C",    min: 10,  max: 50,  step: 0.5, def: 25,  hint: "Average ambient air temperature of the growing area in degrees Celsius." },
+  { key: "humidity",    label: "Humidity",        unit: "%",     min: 10,  max: 100, step: 1,   def: 60,  hint: "Relative moisture level in the air, expressed as a percentage." },
+  { key: "rainfall",    label: "Rainfall",        unit: "mm",    min: 20,  max: 500, step: 5,   def: 100, hint: "Average annual rainfall the field receives, measured in millimetres." },
 ];
 
 const FIELD_META = {
@@ -24,13 +24,6 @@ const FIELD_META = {
   Rainfall:    { label: "Rainfall",    unit: "mm",    key: "rainfall"    },
 };
 
-const CROP_EMOJI = {
-  rice: "🌾", wheat: "🌾", maize: "🌽", apple: "🍎", banana: "🍌",
-  mango: "🥭", grapes: "🍇", watermelon: "🍉", orange: "🍊", papaya: "🧡",
-  coconut: "🥥", cotton: "🌿", coffee: "☕", jute: "🌿",
-  default: "🌱",
-};
-
 const CROP_WIKI = {
   rice: "Rice", wheat: "Wheat", maize: "Maize", apple: "Apple",
   banana: "Banana", mango: "Mango", grapes: "Grape", watermelon: "Watermelon",
@@ -40,10 +33,6 @@ const CROP_WIKI = {
   mungbean: "Mung_bean", blackgram: "Vigna_mungo", lentil: "Lentil",
   pomegranate: "Pomegranate",
 };
-
-function cropEmoji(name = "") {
-  return CROP_EMOJI[name.toLowerCase()] || CROP_EMOJI.default;
-}
 
 function CropImage({ name, className }) {
   const [src, setSrc] = useState(null);
@@ -199,7 +188,7 @@ function ReportPanel({ result, values, reasoning, shap }) {
           Recommended Crop
         </div>
         <div style={{ fontSize: "26px", fontWeight: "700", color: "#064e3b", textTransform: "capitalize", marginBottom: "8px" }}>
-          {cropEmoji(result.recommended_crop)} {result.recommended_crop}
+          {result.recommended_crop}
         </div>
         <div style={{ fontSize: "13px", color: "#166534", marginBottom: "8px" }}>
           Confidence: <strong>{result.confidence}%</strong>
@@ -234,7 +223,7 @@ function ReportPanel({ result, values, reasoning, shap }) {
             <div key={item.crop} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ width: "16px", color: "#94a3b8", fontSize: "12px", textAlign: "right" }}>{i + 1}</span>
               <span style={{ width: "110px", fontSize: "13px", color: "#1e293b", textTransform: "capitalize", fontWeight: i === 0 ? "600" : "400" }}>
-                {cropEmoji(item.crop)} {item.crop}
+                {item.crop}
               </span>
               <div style={{ flex: 1, height: "8px", background: "#f1f5f9", borderRadius: "4px", overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${Math.min(item.probability, 100)}%`, background: i === 0 ? "#059669" : "#34d399", borderRadius: "4px" }} />
@@ -471,7 +460,6 @@ export default function Dashboard() {
           {/* Empty state */}
           {!result && !loading && (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm px-8 py-10 flex flex-col items-center justify-center text-center">
-              <div className="text-4xl mb-3">🌿</div>
               <p className="text-slate-500 dark:text-slate-400 text-sm">
                 Set your field parameters and click{" "}
                 <strong className="text-slate-700 dark:text-slate-200">Recommend Crop</strong> to see results.
@@ -528,7 +516,6 @@ export default function Dashboard() {
                   <div className="p-5">
                     <div className="text-xs font-medium text-emerald-200 mb-2 uppercase tracking-wide">Recommended Crop</div>
                     <div className="flex items-center gap-3">
-                      <span className="text-4xl">{cropEmoji(result.recommended_crop)}</span>
                       <div>
                         <div className="text-2xl font-bold capitalize tracking-tight">{result.recommended_crop}</div>
                         <div className="text-emerald-200 text-sm mt-0.5">
@@ -560,7 +547,9 @@ export default function Dashboard() {
                     {result.top5.map((item, i) => (
                       <div key={item.crop} className="flex items-center gap-3">
                         <span className="text-slate-400 dark:text-slate-500 text-sm w-5 text-right">{i + 1}</span>
-                        <span className="text-lg">{cropEmoji(item.crop)}</span>
+                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-emerald-50 dark:bg-slate-700 shrink-0">
+                          <CropImage name={item.crop} className="w-full h-full object-cover" />
+                        </div>
                         <span className="capitalize text-slate-700 dark:text-slate-300 font-medium flex-1">{item.crop}</span>
                         <div className="flex items-center gap-2 w-40">
                           <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -613,7 +602,6 @@ export default function Dashboard() {
                     htmlFor={`input-${f.key}`}
                     className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1 mb-1.5 truncate"
                   >
-                    <span className="shrink-0">{f.icon}</span>
                     <span className="truncate">{f.label}</span>
                   </label>
 

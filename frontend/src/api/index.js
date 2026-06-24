@@ -56,10 +56,13 @@ export const api = {
       body: JSON.stringify(fields),
     }),
 
-  history: (token, page = 1, limit = 20) =>
-    request(`/predict/history?page=${page}&limit=${limit}`, {
+  history: (token, page = 1, limit = 20, model = null) => {
+    const params = new URLSearchParams({ page, limit });
+    if (model) params.append("model", model);
+    return request(`/predict/history?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
-    }),
+    });
+  },
 
   deleteHistoryItem: (token, timestamp) =>
     request(`/predict/history/${encodeURIComponent(timestamp)}`, {

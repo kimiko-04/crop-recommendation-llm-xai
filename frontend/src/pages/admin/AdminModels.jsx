@@ -147,7 +147,6 @@ function MetricBadge({ label, value }) {
 }
 
 function ModelCard({ data, isActive, onSetActive, onDelete, busyActive, busyDelete }) {
-  const emoji = data?.base === "bert" ? "🧠" : "⚡";
   return (
     <div className={`rounded-2xl border p-5 transition-all ${
       isActive
@@ -156,7 +155,6 @@ function ModelCard({ data, isActive, onSetActive, onDelete, busyActive, busyDele
     }`}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className="text-xl">{emoji}</span>
           <div>
             <h3 className="font-bold text-slate-900 dark:text-white">{data?.name}</h3>
             {isActive && (

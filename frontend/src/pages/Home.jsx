@@ -4,22 +4,18 @@ import Navbar from "../components/Navbar";
 
 const features = [
   {
-    icon: "🤖",
     title: "BERT & DistilBERT Models",
     desc: "State-of-the-art transformer models fine-tuned on soil and climate data for highly accurate crop predictions.",
   },
   {
-    icon: "🔍",
     title: "SHAP Explainability",
     desc: "Understand exactly which soil and weather factors drove each recommendation with SHAP feature importance charts.",
   },
   {
-    icon: "🌱",
     title: "22 Crop Classes",
     desc: "Covers a wide variety of crops including rice, wheat, maize, fruits, and legumes suitable for diverse climates.",
   },
   {
-    icon: "⚡",
     title: "Real-time Predictions",
     desc: "Get instant crop recommendations by entering your field's N, P, K values alongside temperature and rainfall data.",
   },
@@ -61,7 +57,7 @@ function CropCard({ wiki, label }) {
     <div className="group rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-600 transition-all duration-200 bg-white dark:bg-slate-800">
       <div className="h-28 bg-emerald-50 dark:bg-slate-700 overflow-hidden relative">
         {!loaded && (
-          <div className="absolute inset-0 flex items-center justify-center text-3xl">🌱</div>
+          <div className="absolute inset-0 bg-emerald-100 dark:bg-slate-600" />
         )}
         {src && (
           <img

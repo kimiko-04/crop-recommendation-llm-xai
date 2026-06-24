@@ -90,14 +90,21 @@ async def history(
     email: str = Depends(_get_user),
     page:  int  = Query(1, ge=1),
     limit: int  = Query(20, ge=1, le=100),
+    model: str  = Query(None),
 ):
-    """Return the calling user's prediction history, newest first, paginated."""
+    """Return the calling user's prediction history, newest first, paginated.
+
+    Optional ?model= filter matches result.model_used (e.g. BERT, BERT_V2, DISTILBERT).
+    """
+    query = {"user_email": email}
+    if model:
+        query["result.model_used"] = model.upper()
     skip   = (page - 1) * limit
     cursor = predictions_collection.find(
-        {"user_email": email}, {"_id": 0}
+        query, {"_id": 0}
     ).sort("timestamp", -1).skip(skip).limit(limit)
     items = await cursor.to_list(length=limit)
-    total = await predictions_collection.count_documents({"user_email": email})
+    total = await predictions_collection.count_documents(query)
     return {
         "items": items,
         "total": total,
